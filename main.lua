@@ -4,7 +4,7 @@ local players = workspace.NPCs;
 local workspace = game:GetService("Workspace");
 
 -- variables
-local localPlayer = players.LocalPlayer;
+local localPlayer = game.Players.LocalPlayer;
 local camera = workspace.CurrentCamera;
 local viewportSize = camera.ViewportSize;
 local container = Instance.new("Folder",
