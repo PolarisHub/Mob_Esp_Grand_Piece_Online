@@ -516,8 +516,11 @@ function InstanceObject:Render()
 		visible = false;
 	end
 
+	print("rendering something")
 	text.Visible = visible;
+	text.Visible = true
 	if text.Visible then
+		print("text is visible")
 		text.Position = position;
 		text.Color = options.textColor[1];
 		text.Transparency = options.textColor[2];
