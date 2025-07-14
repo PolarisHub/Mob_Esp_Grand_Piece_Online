@@ -336,7 +336,7 @@ function ESPLibrary.CreateESPComponents(plr)
         Name                   = plr.Name.."_TextLabel",
         BackgroundTransparency = 1,
         Text                   = "",
-        TextColor3             = ESPLibrary.Settings.Text.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Text.DefaultColor,
+        TextColor3             = Color3.fromRGB(255,255,255),
         TextStrokeTransparency = 0.6,
         Font                   = Enum.Font.Code,
         TextWrapped            = false,
@@ -363,8 +363,8 @@ function ESPLibrary.CreateESPComponents(plr)
         Adornee           = plr.Character or nil,
         FillColor         = ESPLibrary.Settings.Highlight.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Highlight.DefaultFillColor,
         OutlineColor      = ESPLibrary.Settings.Highlight.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Highlight.DefaultOutlineColor,
-        FillTransparency  = 0.7,
-        OutlineTransparency = 0.5,
+        FillTransparency  = 0.4,
+        OutlineTransparency = 0.2,
         Enabled           = ESPLibrary.Settings.Highlight.Enabled,
     })
     data.Highlight = highlight
