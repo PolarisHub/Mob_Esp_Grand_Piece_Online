@@ -7,7 +7,7 @@ local ESPLibrary = {}
 
 -- Configuration settings
 ESPLibrary.Settings = {
-    Enabled = true,
+    Enabled = false,
     Box = {
         Enabled = false,
         ShowCorners = false,
@@ -443,8 +443,8 @@ function ESPLibrary.RenderESP(plr)
     data.RootPart = hrp
 
     ESPLibrary.RunningThreads[plr] = RunService.RenderStepped:Connect(function()
-        if not ESPLibrary.Settings.Enabled then
-            data.MainFrame.Visible = false
+        if not ESPLibrary.Settings.Enabled or not ESPLibrary.Settings.Box.Enabled then
+            data.MainFrame.Transparency = 1
             return
         end
         
