@@ -7,23 +7,23 @@ local ESPLibrary = {}
 
 -- Configuration settings
 ESPLibrary.Settings = {
-    Enabled = false,
+    Enabled = true,
     Box = {
-        Enabled = false,
-        ShowCorners = false,
-        ShowSides = false,
+        Enabled = true,
+        ShowCorners = true,
+        ShowSides = true,
         UseTeamColor = false,
         DefaultColor = Color3.fromRGB(0, 200, 200)
     },
     Text = {
-        ShowName = false,
-        ShowHealth = false,
-        ShowDistance = false,
+        ShowName = true,
+        ShowHealth = true,
+        ShowDistance = true,
         UseTeamColor = false,
         DefaultColor = Color3.new(1, 1, 1)
     },
     Highlight = {
-        Enabled = false,
+        Enabled = true,
         UseTeamColor = false,
         DefaultFillColor = Color3.fromRGB(100, 100, 100),
         DefaultOutlineColor = Color3.fromRGB(0, 200, 200)
@@ -32,15 +32,25 @@ ESPLibrary.Settings = {
 
 ESPLibrary.ExistantPlayers = {}
 ESPLibrary.RunningThreads = {}
+ESPLibrary.AnimationThreads = {}
 ESPLibrary.XenithESP = nil
+ESPLibrary.LocalPlayer = Players.LocalPlayer
 
 ---------------------------------------------------------------------------------------------------
 -- Helper Functions
 ---------------------------------------------------------------------------------------------------
 function ESPLibrary.CreateInstance(className, props)
     if typeof(className) ~= "string" then return end
-    local inst = Instance.new(className)
-    for k, v in pairs(props) do inst[k] = v end
+    local success, inst = pcall(function()
+        return Instance.new(className)
+    end)
+    if not success then return end
+    
+    for k, v in pairs(props) do 
+        pcall(function()
+            inst[k] = v 
+        end)
+    end
     return inst
 end
 
@@ -51,13 +61,33 @@ function ESPLibrary.GetTeamColor(player)
     return ESPLibrary.Settings.Box.DefaultColor
 end
 
-function ESPLibrary.LerpColorSequence(a, b, alpha)
-    local keys = {}
-    for i = 1, #a.Keypoints do
-        local ak, bk = a.Keypoints[i], b.Keypoints[i]
-        keys[i] = ColorSequenceKeypoint.new(ak.Time, ak.Value:Lerp(bk.Value, alpha))
+function ESPLibrary.IsValidPlayer(player)
+    return player and player.Parent and player ~= ESPLibrary.LocalPlayer and Players:FindFirstChild(player.Name)
+end
+
+function ESPLibrary.GetPlayerCharacter(player)
+    if not ESPLibrary.IsValidPlayer(player) then return nil end
+    return player.Character
+end
+
+function ESPLibrary.GetPlayerRootPart(player)
+    local character = ESPLibrary.GetPlayerCharacter(player)
+    if not character then return nil end
+    return character:FindFirstChild("HumanoidRootPart")
+end
+
+function ESPLibrary.GetPlayerHumanoid(player)
+    local character = ESPLibrary.GetPlayerCharacter(player)
+    if not character then return nil end
+    return character:FindFirstChild("Humanoid")
+end
+
+function ESPLibrary.SafeDestroy(instance)
+    if instance and instance.Parent then
+        pcall(function()
+            instance:Destroy()
+        end)
     end
-    return ColorSequence.new(keys)
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -74,18 +104,7 @@ function ESPLibrary:ToggleBox(state)
     self.Settings.Box.Enabled = state
     for _, data in pairs(self.ExistantPlayers) do
         if data.MainFrame then
-            -- Use transparency instead of visibility to keep text visible
-            if state then 
-                data.MainFrame.BackgroundTransparency = 0.8
-                if data.FrameStroke then
-                    data.FrameStroke.Transparency = 0
-                end
-            else
-                data.MainFrame.BackgroundTransparency = 1
-                if data.FrameStroke then
-                    data.FrameStroke.Transparency = 1
-                end
-            end
+            data.MainFrame.Visible = state and data.ShouldBeVisible
         end
     end
 end
@@ -153,17 +172,23 @@ end
 
 function ESPLibrary:UpdateAllColors()
     for player, data in pairs(self.ExistantPlayers) do
-        self:UpdatePlayerColors(player, data)
+        if ESPLibrary.IsValidPlayer(player) then
+            self:UpdatePlayerColors(player, data)
+        end
     end
 end
 
 function ESPLibrary:UpdateAllText()
     for player, data in pairs(self.ExistantPlayers) do
-        self:UpdatePlayerText(player, data)
+        if ESPLibrary.IsValidPlayer(player) then
+            self:UpdatePlayerText(player, data)
+        end
     end
 end
 
 function ESPLibrary:UpdatePlayerColors(player, data)
+    if not ESPLibrary.IsValidPlayer(player) or not data then return end
+    
     local teamColor = self:GetTeamColor(player)
     
     -- Update box colors
@@ -199,18 +224,17 @@ function ESPLibrary:UpdatePlayerColors(player, data)
 end
 
 function ESPLibrary:UpdatePlayerText(player, data)
-    if not data.NameLabel then return end
+    if not ESPLibrary.IsValidPlayer(player) or not data or not data.NameLabel then return end
     
     local textParts = {}
     
     if self.Settings.Text.ShowHealth then
-        local chr = player.Character
-        if chr then
-            local hum = chr:FindFirstChild("Humanoid")
-            if hum then
-                local hpPct = hum.Health / hum.MaxHealth
-                table.insert(textParts, string.format("[%d%%]", math.floor(hpPct * 100)))
-            end
+        local humanoid = ESPLibrary.GetPlayerHumanoid(player)
+        if humanoid then
+            local hpPct = humanoid.Health / humanoid.MaxHealth
+            table.insert(textParts, string.format("[%d%%]", math.floor(hpPct * 100)))
+        else
+            table.insert(textParts, "[?%]")
         end
     end
     
@@ -219,24 +243,103 @@ function ESPLibrary:UpdatePlayerText(player, data)
     end
     
     if self.Settings.Text.ShowDistance then
-        local chr = player.Character
-        if chr then
-            local hrp = chr:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                local cam = workspace.CurrentCamera
-                local dist = (cam.CFrame.Position - hrp.Position).Magnitude
+        local rootPart = ESPLibrary.GetPlayerRootPart(player)
+        if rootPart then
+            local cam = workspace.CurrentCamera
+            if cam then
+                local dist = (cam.CFrame.Position - rootPart.Position).Magnitude
                 table.insert(textParts, string.format("[%d]", math.round(dist)))
+            else
+                table.insert(textParts, "[?]")
             end
+        else
+            table.insert(textParts, "[?]")
         end
     end
     
-    -- Show text if any text options are enabled
-    local showText = self.Settings.Text.ShowName or self.Settings.Text.ShowHealth or self.Settings.Text.ShowDistance
-    if showText and #textParts > 0 then
-        data.NameLabel.Text = table.concat(textParts, " / ")
-        data.NameLabel.Visible = true
-    else
-        data.NameLabel.Visible = false
+    data.NameLabel.Text = table.concat(textParts, " / ")
+end
+
+---------------------------------------------------------------------------------------------------
+-- Character Management
+---------------------------------------------------------------------------------------------------
+function ESPLibrary:SetupCharacterConnections(player, data)
+    if not ESPLibrary.IsValidPlayer(player) or not data then return end
+    
+    -- Clean up existing connections
+    if data.CharacterConnections then
+        for _, connection in pairs(data.CharacterConnections) do
+            if connection then
+                connection:Disconnect()
+            end
+        end
+    end
+    data.CharacterConnections = {}
+    
+    -- Character added connection
+    data.CharacterConnections.CharacterAdded = player.CharacterAdded:Connect(function(character)
+        if data.Highlight then
+            data.Highlight.Adornee = character
+        end
+        
+        -- Wait for HumanoidRootPart
+        local rootPart = character:WaitForChild("HumanoidRootPart", 5)
+        if rootPart then
+            data.RootPart = rootPart
+        end
+        
+        -- Setup humanoid connection for health updates
+        local humanoid = character:WaitForChild("Humanoid", 5)
+        if humanoid then
+            data.CharacterConnections.HealthChanged = humanoid.HealthChanged:Connect(function()
+                self:UpdatePlayerText(player, data)
+            end)
+            
+            data.CharacterConnections.Died = humanoid.Died:Connect(function()
+                data.ShouldBeVisible = false
+                if data.MainFrame then
+                    data.MainFrame.Visible = false
+                end
+            end)
+        end
+    end)
+    
+    -- Character removing connection
+    data.CharacterConnections.CharacterRemoving = player.CharacterRemoving:Connect(function()
+        data.ShouldBeVisible = false
+        if data.MainFrame then
+            data.MainFrame.Visible = false
+        end
+        if data.Highlight then
+            data.Highlight.Adornee = nil
+        end
+        data.RootPart = nil
+    end)
+    
+    -- Setup initial character if it exists
+    if player.Character then
+        if data.Highlight then
+            data.Highlight.Adornee = player.Character
+        end
+        
+        local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            data.RootPart = rootPart
+        end
+        
+        local humanoid = player.Character:FindFirstChild("Humanoid")
+        if humanoid then
+            data.CharacterConnections.HealthChanged = humanoid.HealthChanged:Connect(function()
+                self:UpdatePlayerText(player, data)
+            end)
+            
+            data.CharacterConnections.Died = humanoid.Died:Connect(function()
+                data.ShouldBeVisible = false
+                if data.MainFrame then
+                    data.MainFrame.Visible = false
+                end
+            end)
+        end
     end
 end
 
@@ -244,19 +347,22 @@ end
 -- Build all UI bits + chams for one player
 ---------------------------------------------------------------------------------------------------
 function ESPLibrary.CreateESPComponents(plr)
+    if not ESPLibrary.IsValidPlayer(plr) then return end
     if ESPLibrary.ExistantPlayers[plr] then return end
+    
     ESPLibrary.ExistantPlayers[plr] = {}
     local data = ESPLibrary.ExistantPlayers[plr]
+    data.ShouldBeVisible = false
 
     -- Main container
     local frame = ESPLibrary.CreateInstance("Frame", {
         Parent               = ESPLibrary.XenithESP,
         Name                 = plr.Name.."_ESP",
         BackgroundColor3     = Color3.fromRGB(0,0,0),
-        BackgroundTransparency = ESPLibrary.Settings.Box.Enabled and 0.8 or 1,
+        BackgroundTransparency = 0.8,
         AnchorPoint          = Vector2.new(0.5,0.5),
         Size                 = UDim2.new(0,180,0,250),
-        Visible              = true, -- Always visible so text can show
+        Visible              = false,
     })
     data.MainFrame = frame
     ESPLibrary.CreateInstance("UICorner", {Parent = frame, CornerRadius = UDim.new(0,1)})
@@ -266,7 +372,6 @@ function ESPLibrary.CreateESPComponents(plr)
         Parent    = frame,
         Color     = ESPLibrary.Settings.Box.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Box.DefaultColor,
         Thickness = 1,
-        Transparency = ESPLibrary.Settings.Box.Enabled and 0 or 1,
     })
     data.FrameStroke = frameStroke
 
@@ -297,7 +402,7 @@ function ESPLibrary.CreateESPComponents(plr)
             AnchorPoint       = anchor,
             ZIndex            = 3,
             BackgroundColor3  = ESPLibrary.Settings.Box.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Box.DefaultColor,
-            Visible           = ESPLibrary.Settings.Box.ShowCorners and ESPLibrary.Settings.Box.Enabled,
+            Visible           = ESPLibrary.Settings.Box.ShowCorners,
         })
         ESPLibrary.CreateInstance("UIStroke", {Parent = box, Color = Color3.new(0,0,0), Thickness = 0.6})
         data[name] = box
@@ -324,16 +429,16 @@ function ESPLibrary.CreateESPComponents(plr)
             AnchorPoint       = anchor,
             ZIndex            = 2,
             BackgroundColor3  = ESPLibrary.Settings.Box.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Box.DefaultColor,
-            Visible           = ESPLibrary.Settings.Box.ShowSides and ESPLibrary.Settings.Box.Enabled,
+            Visible           = ESPLibrary.Settings.Box.ShowSides,
         })
         ESPLibrary.CreateInstance("UIStroke", {Parent = bar, Color = Color3.new(0,0,0), Thickness = 0.6})
         data[name] = bar
     end
 
-    -- Text label + gradient - Now independent of box visibility
+    -- Text label + gradient
     local nameLabel = ESPLibrary.CreateInstance("TextLabel", {
-        Parent                 = ESPLibrary.XenithESP, -- Directly parented to ScreenGui instead of frame
-        Name                   = plr.Name.."_TextLabel",
+        Parent                 = frame,
+        Name                   = "NameLabel",
         BackgroundTransparency = 1,
         Text                   = "",
         TextColor3             = ESPLibrary.Settings.Text.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Text.DefaultColor,
@@ -343,9 +448,8 @@ function ESPLibrary.CreateESPComponents(plr)
         TextScaled             = false,
         AutomaticSize          = Enum.AutomaticSize.None,
         AnchorPoint            = Vector2.new(0.5,1),
-        Position               = UDim2.new(0.5,0,0.5,0), -- Will be updated in render loop
+        Position               = UDim2.new(0.5,0,0,-4),
         ZIndex                 = 10,
-        Visible                = false, -- Initially hidden, will be shown when text is enabled
     })
     data.NameLabel = nameLabel
 
@@ -369,12 +473,11 @@ function ESPLibrary.CreateESPComponents(plr)
     })
     data.Highlight = highlight
     
-    plr.CharacterAdded:Connect(function(char)
-        highlight.Adornee = char
-    end)
+    -- Setup character connections
+    ESPLibrary:SetupCharacterConnections(plr, data)
 
     -- Animation loop
-    task.spawn(function()
+    ESPLibrary.AnimationThreads[plr] = task.spawn(function()
         local baseColor      = ESPLibrary.Settings.Box.UseTeamColor and ESPLibrary.GetTeamColor(plr) or Color3.fromRGB(0, 180, 200)
         local midColor       = baseColor:Lerp(Color3.new(1,1,1), 0.3)
         local highlightColor = baseColor:Lerp(Color3.new(1,1,1), 0.6)
@@ -383,58 +486,60 @@ function ESPLibrary.CreateESPComponents(plr)
         local minAlpha       = 0.35
         local maxAlpha       = 0.75
 
-        while frame.Parent do
+        while frame.Parent and ESPLibrary.ExistantPlayers[plr] do
+            if not ESPLibrary.IsValidPlayer(plr) then break end
+            
             local t     = tick()
             local pulse = (math.sin(t * pulseSpeed * math.pi * 2) + 1) / 2
             local inv   = 1 - pulse
 
             if not ESPLibrary.Settings.Box.UseTeamColor then
-                boxGrad.Color = ColorSequence.new{
-                    ColorSequenceKeypoint.new(0, baseColor),
-                    ColorSequenceKeypoint.new(0.5, midColor),
-                    ColorSequenceKeypoint.new(1, highlightColor),
-                }
+                pcall(function()
+                    boxGrad.Color = ColorSequence.new{
+                        ColorSequenceKeypoint.new(0, baseColor),
+                        ColorSequenceKeypoint.new(0.5, midColor),
+                        ColorSequenceKeypoint.new(1, highlightColor),
+                    }
 
-                frame.BackgroundColor3 = baseColor:Lerp(midColor, pulse * 0.5)
-                -- Only change transparency if box is enabled
-                if ESPLibrary.Settings.Box.Enabled then
+                    frame.BackgroundColor3      = baseColor:Lerp(midColor, pulse * 0.5)
                     frame.BackgroundTransparency = 1 - (minAlpha + (maxAlpha - minAlpha)*pulse)
-                end
 
-                frameStroke.Color = midColor
-                -- Only change stroke transparency if box is enabled
-                if ESPLibrary.Settings.Box.Enabled then
+                    frameStroke.Color        = midColor
                     frameStroke.Transparency = 0.4 + 0.3*(1-pulse)
-                end
 
-                for _, child in pairs(data) do
-                    if typeof(child)=="Instance" and child:IsA("Frame") and child~=frame then
-                        child.BackgroundColor3 = highlightColor:Lerp(baseColor, pulse*0.5)
-                        local stroke = child:FindFirstChildOfClass("UIStroke")
-                        if stroke then
-                            stroke.Color        = baseColor
-                            stroke.Transparency = 0.5 + 0.3*pulse
+                    for _, child in pairs(data) do
+                        if typeof(child)=="Instance" and child:IsA("Frame") and child~=frame then
+                            child.BackgroundColor3 = highlightColor:Lerp(baseColor, pulse*0.5)
+                            local stroke = child:FindFirstChildOfClass("UIStroke")
+                            if stroke then
+                                stroke.Color        = baseColor
+                                stroke.Transparency = 0.5 + 0.3*pulse
+                            end
                         end
                     end
-                end
+                end)
             end
 
             if not ESPLibrary.Settings.Text.UseTeamColor then
-                textGrad.Color           = ColorSequence.new{
-                    ColorSequenceKeypoint.new(0, midColor),
-                    ColorSequenceKeypoint.new(1, highlightColor),
-                }
-                data.NameLabel.TextColor3 = highlightColor:Lerp(midColor, pulse)
+                pcall(function()
+                    textGrad.Color           = ColorSequence.new{
+                        ColorSequenceKeypoint.new(0, midColor),
+                        ColorSequenceKeypoint.new(1, highlightColor),
+                    }
+                    data.NameLabel.TextColor3 = highlightColor:Lerp(midColor, pulse)
+                end)
             end
 
             if not ESPLibrary.Settings.Highlight.UseTeamColor then
-                highlight.FillColor           = midColor
-                highlight.OutlineColor        = highlightColor
-                highlight.FillTransparency    = minAlpha + (maxAlpha - minAlpha) * inv * 0.5
-                highlight.OutlineTransparency = 0.2 + 0.5 * inv
+                pcall(function()
+                    highlight.FillColor           = midColor
+                    highlight.OutlineColor        = highlightColor
+                    highlight.FillTransparency    = minAlpha + (maxAlpha - minAlpha) * inv * 0.5
+                    highlight.OutlineTransparency = 0.2 + 0.5 * inv
+                end)
             end
             
-            task.wait(0.01)
+            task.wait(0.016) -- ~60 FPS
         end
     end)
     
@@ -446,65 +551,105 @@ end
 function ESPLibrary.DeleteESPComponents(plr)
     local data = ESPLibrary.ExistantPlayers[plr]
     if not data then return end
-    if data.MainFrame then data.MainFrame:Destroy() end
-    if data.NameLabel then data.NameLabel:Destroy() end
-    if data.Highlight then data.Highlight:Destroy() end
+    
+    -- Clean up connections
+    if data.CharacterConnections then
+        for _, connection in pairs(data.CharacterConnections) do
+            if connection then
+                connection:Disconnect()
+            end
+        end
+    end
+    
+    -- Clean up UI elements
+    ESPLibrary.SafeDestroy(data.MainFrame)
+    ESPLibrary.SafeDestroy(data.Highlight)
+    
+    -- Clean up threads
     if ESPLibrary.RunningThreads[plr] then
         ESPLibrary.RunningThreads[plr]:Disconnect()
         ESPLibrary.RunningThreads[plr] = nil
     end
+    
+    if ESPLibrary.AnimationThreads[plr] then
+        task.cancel(ESPLibrary.AnimationThreads[plr])
+        ESPLibrary.AnimationThreads[plr] = nil
+    end
+    
     ESPLibrary.ExistantPlayers[plr] = nil
 end
 
 function ESPLibrary.RenderESP(plr)
     local data = ESPLibrary.ExistantPlayers[plr]
     if not data then return end
-    local chr = plr.Character
-    if not chr then return end
-    local hrp = chr:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    data.RootPart = hrp
-
+    
     ESPLibrary.RunningThreads[plr] = RunService.RenderStepped:Connect(function()
-        if not ESPLibrary.Settings.Enabled then
-            data.MainFrame.Visible = false
-            data.NameLabel.Visible = false
+        if not ESPLibrary.IsValidPlayer(plr) then
+            ESPLibrary.DeleteESPComponents(plr)
             return
         end
         
-        local cam, frame = workspace.CurrentCamera, data.MainFrame
-        local screenPt, onScreen = cam:WorldToScreenPoint(hrp.Position)
-        if not onScreen then 
-            frame.Visible = false
-            data.NameLabel.Visible = false
-            return 
+        if not ESPLibrary.Settings.Enabled or not ESPLibrary.Settings.Box.Enabled then
+            data.MainFrame.Visible = false
+            data.ShouldBeVisible = false
+            return
         end
         
-        frame.Visible = true
-        frame.Position = UDim2.new(0, screenPt.X, 0, screenPt.Y)
+        local rootPart = ESPLibrary.GetPlayerRootPart(plr)
+        if not rootPart then
+            data.MainFrame.Visible = false
+            data.ShouldBeVisible = false
+            return
+        end
+        
+        local humanoid = ESPLibrary.GetPlayerHumanoid(plr)
+        if humanoid and humanoid.Health <= 0 then
+            data.MainFrame.Visible = false
+            data.ShouldBeVisible = false
+            return
+        end
+        
+        local cam = workspace.CurrentCamera
+        if not cam then
+            data.MainFrame.Visible = false
+            data.ShouldBeVisible = false
+            return
+        end
+        
+        local screenPt, onScreen = cam:WorldToScreenPoint(rootPart.Position)
+        if not onScreen then
+            data.MainFrame.Visible = false
+            data.ShouldBeVisible = false
+            return
+        end
+        
+        data.ShouldBeVisible = true
+        data.MainFrame.Visible = true
+        data.MainFrame.Position = UDim2.new(0, screenPt.X, 0, screenPt.Y)
 
         -- box sizing
-        local dist      = (cam.CFrame.Position - hrp.Position).Magnitude
+        local dist      = (cam.CFrame.Position - rootPart.Position).Magnitude
         local scaleFact = math.clamp(1 - (dist/60), 0, .2)
         local sizeBase  = 4.5 + 4.5 * scaleFact
         local w         = sizeBase * cam.ViewportSize.Y / (screenPt.Z * 1.7)
         local h         = w * 1.5
-        frame.Size      = UDim2.new(0, w, 0, h)
+        data.MainFrame.Size = UDim2.new(0, w, 0, h)
 
         -- Update text
         ESPLibrary:UpdatePlayerText(plr, data)
         
-        -- Position text label independently above the player
-        local textOffsetY = -h/2 - 10 -- Position above the box
-        data.NameLabel.Position = UDim2.new(0, screenPt.X, 0, screenPt.Y + textOffsetY)
-        
         -- text sizing
         local lbl = data.NameLabel
         local sf = math.clamp(30 / math.max(dist,0.1), .5, 1.5)
-        local bounds = TextService:GetTextSize(lbl.Text, 24, lbl.Font, Vector2.new(1e5,1e5))
-        lbl.Size     = UDim2.new(0, math.clamp(bounds.X*sf,120,240),
-                                 0, math.clamp(bounds.Y*sf,24,48))
-        lbl.TextSize = 24 * sf
+        local success, bounds = pcall(function()
+            return TextService:GetTextSize(lbl.Text, 24, lbl.Font, Vector2.new(1e5,1e5))
+        end)
+        
+        if success then
+            lbl.Size     = UDim2.new(0, math.clamp(bounds.X*sf,120,240),
+                                     0, math.clamp(bounds.Y*sf,24,48))
+            lbl.TextSize = 24 * sf
+        end
     end)
 end
 
@@ -512,31 +657,68 @@ end
 -- Initialize everything
 ---------------------------------------------------------------------------------------------------
 function ESPLibrary.InitializeESP()
+    -- Clean up old instances
     local old = gethui():FindFirstChild("XenithESP")
-    if old then old:Destroy() end
-    ESPLibrary.XenithESP       = ESPLibrary.CreateInstance("ScreenGui", {
-        Parent = gethui(), Name = "XenithESP", Enabled = ESPLibrary.Settings.Enabled
+    if old then 
+        ESPLibrary.SafeDestroy(old)
+    end
+    
+    -- Clean up existing data
+    for plr, _ in pairs(ESPLibrary.ExistantPlayers) do
+        ESPLibrary.DeleteESPComponents(plr)
+    end
+    
+    ESPLibrary.XenithESP = ESPLibrary.CreateInstance("ScreenGui", {
+        Parent = gethui(), 
+        Name = "XenithESP", 
+        Enabled = ESPLibrary.Settings.Enabled,
+        ResetOnSpawn = false
     })
+    
     ESPLibrary.ExistantPlayers = {}
-    ESPLibrary.RunningThreads  = {}
+    ESPLibrary.RunningThreads = {}
+    ESPLibrary.AnimationThreads = {}
 
+    -- Add existing players (except local player)
     for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= Players.LocalPlayer then
+        if ESPLibrary.IsValidPlayer(p) then
             ESPLibrary.CreateESPComponents(p)
             ESPLibrary.RenderESP(p)
         end
     end
+    
+    -- Handle new players
     Players.PlayerAdded:Connect(function(p)
-        if p ~= Players.LocalPlayer then
+        task.wait(0.1) -- Small delay to ensure player is fully loaded
+        if ESPLibrary.IsValidPlayer(p) then
             ESPLibrary.CreateESPComponents(p)
             ESPLibrary.RenderESP(p)
         end
     end)
+    
+    -- Handle leaving players
     Players.PlayerRemoving:Connect(function(p)
-        if p ~= Players.LocalPlayer then
+        if ESPLibrary.ExistantPlayers[p] then
             ESPLibrary.DeleteESPComponents(p)
         end
     end)
+end
+
+---------------------------------------------------------------------------------------------------
+-- Cleanup function
+---------------------------------------------------------------------------------------------------
+function ESPLibrary:Cleanup()
+    for plr, _ in pairs(self.ExistantPlayers) do
+        self.DeleteESPComponents(plr)
+    end
+    
+    if self.XenithESP then
+        self.SafeDestroy(self.XenithESP)
+    end
+    
+    self.ExistantPlayers = {}
+    self.RunningThreads = {}
+    self.AnimationThreads = {}
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -582,49 +764,4 @@ function ESPLibrary:ShowName()
     self:ToggleName(true)
 end
 
-function ESPLibrary:HideName()
-    self:ToggleName(false)
-end
-
-function ESPLibrary:ShowHealth()
-    self:ToggleHealth(true)
-end
-
-function ESPLibrary:HideHealth()
-    self:ToggleHealth(false)
-end
-
-function ESPLibrary:ShowDistance()
-    self:ToggleDistance(true)
-end
-
-function ESPLibrary:HideDistance()
-    self:ToggleDistance(false)
-end
-
--- Team color controls
-function ESPLibrary:UseTeamColors()
-    self:ToggleBoxTeamColor(true)
-    self:ToggleTextTeamColor(true)
-    self:ToggleHighlightTeamColor(true)
-end
-
-function ESPLibrary:UseDefaultColors()
-    self:ToggleBoxTeamColor(false)
-    self:ToggleTextTeamColor(false)
-    self:ToggleHighlightTeamColor(false)
-end
-
--- Highlight controls
-function ESPLibrary:ShowHighlight()
-    self:ToggleHighlight(true)
-end
-
-function ESPLibrary:HideHighlight()
-    self:ToggleHighlight(false)
-end
-
--- Initialize
-ESPLibrary.InitializeESP()
-
-return ESPLibrary
+function ESPLib
