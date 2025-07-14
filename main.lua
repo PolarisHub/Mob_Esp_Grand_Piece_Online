@@ -74,10 +74,17 @@ function ESPLibrary:ToggleBox(state)
     self.Settings.Box.Enabled = state
     for _, data in pairs(self.ExistantPlayers) do
         if data.MainFrame then
+            -- Use transparency instead of visibility to keep text visible
             if state then 
-                data.MainFrame.Transparency = 0
+                data.MainFrame.BackgroundTransparency = 0.8
+                if data.FrameStroke then
+                    data.FrameStroke.Transparency = 0
+                end
             else
-                data.MainFrame.Transparency = 1
+                data.MainFrame.BackgroundTransparency = 1
+                if data.FrameStroke then
+                    data.FrameStroke.Transparency = 1
+                end
             end
         end
     end
@@ -223,7 +230,14 @@ function ESPLibrary:UpdatePlayerText(player, data)
         end
     end
     
-    data.NameLabel.Text = table.concat(textParts, " / ")
+    -- Show text if any text options are enabled
+    local showText = self.Settings.Text.ShowName or self.Settings.Text.ShowHealth or self.Settings.Text.ShowDistance
+    if showText and #textParts > 0 then
+        data.NameLabel.Text = table.concat(textParts, " / ")
+        data.NameLabel.Visible = true
+    else
+        data.NameLabel.Visible = false
+    end
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -239,10 +253,10 @@ function ESPLibrary.CreateESPComponents(plr)
         Parent               = ESPLibrary.XenithESP,
         Name                 = plr.Name.."_ESP",
         BackgroundColor3     = Color3.fromRGB(0,0,0),
-        BackgroundTransparency = 0.8,
+        BackgroundTransparency = ESPLibrary.Settings.Box.Enabled and 0.8 or 1,
         AnchorPoint          = Vector2.new(0.5,0.5),
         Size                 = UDim2.new(0,180,0,250),
-        Visible              = false,
+        Visible              = true, -- Always visible so text can show
     })
     data.MainFrame = frame
     ESPLibrary.CreateInstance("UICorner", {Parent = frame, CornerRadius = UDim.new(0,1)})
@@ -252,6 +266,7 @@ function ESPLibrary.CreateESPComponents(plr)
         Parent    = frame,
         Color     = ESPLibrary.Settings.Box.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Box.DefaultColor,
         Thickness = 1,
+        Transparency = ESPLibrary.Settings.Box.Enabled and 0 or 1,
     })
     data.FrameStroke = frameStroke
 
@@ -282,7 +297,7 @@ function ESPLibrary.CreateESPComponents(plr)
             AnchorPoint       = anchor,
             ZIndex            = 3,
             BackgroundColor3  = ESPLibrary.Settings.Box.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Box.DefaultColor,
-            Visible           = ESPLibrary.Settings.Box.ShowCorners,
+            Visible           = ESPLibrary.Settings.Box.ShowCorners and ESPLibrary.Settings.Box.Enabled,
         })
         ESPLibrary.CreateInstance("UIStroke", {Parent = box, Color = Color3.new(0,0,0), Thickness = 0.6})
         data[name] = box
@@ -309,16 +324,16 @@ function ESPLibrary.CreateESPComponents(plr)
             AnchorPoint       = anchor,
             ZIndex            = 2,
             BackgroundColor3  = ESPLibrary.Settings.Box.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Box.DefaultColor,
-            Visible           = ESPLibrary.Settings.Box.ShowSides,
+            Visible           = ESPLibrary.Settings.Box.ShowSides and ESPLibrary.Settings.Box.Enabled,
         })
         ESPLibrary.CreateInstance("UIStroke", {Parent = bar, Color = Color3.new(0,0,0), Thickness = 0.6})
         data[name] = bar
     end
 
-    -- Text label + gradient
+    -- Text label + gradient - Now independent of box visibility
     local nameLabel = ESPLibrary.CreateInstance("TextLabel", {
-        Parent                 = frame,
-        Name                   = "NameLabel",
+        Parent                 = ESPLibrary.XenithESP, -- Directly parented to ScreenGui instead of frame
+        Name                   = plr.Name.."_TextLabel",
         BackgroundTransparency = 1,
         Text                   = "",
         TextColor3             = ESPLibrary.Settings.Text.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Text.DefaultColor,
@@ -328,8 +343,9 @@ function ESPLibrary.CreateESPComponents(plr)
         TextScaled             = false,
         AutomaticSize          = Enum.AutomaticSize.None,
         AnchorPoint            = Vector2.new(0.5,1),
-        Position               = UDim2.new(0.5,0,0,-4),
+        Position               = UDim2.new(0.5,0,0.5,0), -- Will be updated in render loop
         ZIndex                 = 10,
+        Visible                = false, -- Initially hidden, will be shown when text is enabled
     })
     data.NameLabel = nameLabel
 
@@ -379,11 +395,17 @@ function ESPLibrary.CreateESPComponents(plr)
                     ColorSequenceKeypoint.new(1, highlightColor),
                 }
 
-                frame.BackgroundColor3      = baseColor:Lerp(midColor, pulse * 0.5)
-                frame.BackgroundTransparency = 1 - (minAlpha + (maxAlpha - minAlpha)*pulse)
+                frame.BackgroundColor3 = baseColor:Lerp(midColor, pulse * 0.5)
+                -- Only change transparency if box is enabled
+                if ESPLibrary.Settings.Box.Enabled then
+                    frame.BackgroundTransparency = 1 - (minAlpha + (maxAlpha - minAlpha)*pulse)
+                end
 
-                frameStroke.Color        = midColor
-                frameStroke.Transparency = 0.4 + 0.3*(1-pulse)
+                frameStroke.Color = midColor
+                -- Only change stroke transparency if box is enabled
+                if ESPLibrary.Settings.Box.Enabled then
+                    frameStroke.Transparency = 0.4 + 0.3*(1-pulse)
+                end
 
                 for _, child in pairs(data) do
                     if typeof(child)=="Instance" and child:IsA("Frame") and child~=frame then
@@ -425,6 +447,7 @@ function ESPLibrary.DeleteESPComponents(plr)
     local data = ESPLibrary.ExistantPlayers[plr]
     if not data then return end
     if data.MainFrame then data.MainFrame:Destroy() end
+    if data.NameLabel then data.NameLabel:Destroy() end
     if data.Highlight then data.Highlight:Destroy() end
     if ESPLibrary.RunningThreads[plr] then
         ESPLibrary.RunningThreads[plr]:Disconnect()
@@ -443,15 +466,21 @@ function ESPLibrary.RenderESP(plr)
     data.RootPart = hrp
 
     ESPLibrary.RunningThreads[plr] = RunService.RenderStepped:Connect(function()
-        if not ESPLibrary.Settings.Enabled or not ESPLibrary.Settings.Box.Enabled then
-            data.MainFrame.Transparency = 1
+        if not ESPLibrary.Settings.Enabled then
+            data.MainFrame.Visible = false
+            data.NameLabel.Visible = false
             return
         end
         
         local cam, frame = workspace.CurrentCamera, data.MainFrame
         local screenPt, onScreen = cam:WorldToScreenPoint(hrp.Position)
-        if not onScreen then frame.Visible = false return end
-        frame.Visible  = true
+        if not onScreen then 
+            frame.Visible = false
+            data.NameLabel.Visible = false
+            return 
+        end
+        
+        frame.Visible = true
         frame.Position = UDim2.new(0, screenPt.X, 0, screenPt.Y)
 
         -- box sizing
@@ -464,6 +493,10 @@ function ESPLibrary.RenderESP(plr)
 
         -- Update text
         ESPLibrary:UpdatePlayerText(plr, data)
+        
+        -- Position text label independently above the player
+        local textOffsetY = -h/2 - 10 -- Position above the box
+        data.NameLabel.Position = UDim2.new(0, screenPt.X, 0, screenPt.Y + textOffsetY)
         
         -- text sizing
         local lbl = data.NameLabel
