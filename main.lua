@@ -1,593 +1,171 @@
-local Players     = cloneref(game:GetService("Players"))
-local RunService  = cloneref(game:GetService("RunService"))
-local TextService = game:GetService("TextService")
-local Teams       = game:GetService("Teams")
-
-local ESPLibrary = {}
-
--- Configuration settings
+-- Add this to the Settings table
 ESPLibrary.Settings = {
-    Enabled = true,
-    Box = {
-        Enabled = true,
-        ShowCorners = true,
-        ShowSides = true,
-        UseTeamColor = false,
-        DefaultColor = Color3.fromRGB(0, 200, 200)
+    -- ... existing settings ...
+    TopBar = {
+        Enabled = false,
+        DefaultColor = Color3.new(1, 1, 1),
+        UseTeamColor = false
     },
-    Text = {
-        ShowName = true,
-        ShowHealth = true,
-        ShowDistance = true,
-        UseTeamColor = false,
-        DefaultColor = Color3.new(1, 1, 1)
-    },
-    Highlight = {
-        Enabled = true,
-        UseTeamColor = false,
-        DefaultFillColor = Color3.fromRGB(100, 100, 100),
-        DefaultOutlineColor = Color3.fromRGB(0, 200, 200)
+    BottomBar = {
+        Enabled = false,
+        DefaultColor = Color3.new(1, 1, 1),
+        UseTeamColor = false
     }
 }
 
-ESPLibrary.ExistantPlayers = {}
-ESPLibrary.RunningThreads = {}
-ESPLibrary.XenithESP = nil
-
----------------------------------------------------------------------------------------------------
--- Helper Functions
----------------------------------------------------------------------------------------------------
-function ESPLibrary.CreateInstance(className, props)
-    if typeof(className) ~= "string" then return end
-    local inst = Instance.new(className)
-    for k, v in pairs(props) do inst[k] = v end
-    return inst
-end
-
-function ESPLibrary.GetTeamColor(player)
-    if player.Team and player.Team.TeamColor then
-        return player.Team.TeamColor.Color
-    end
-    return ESPLibrary.Settings.Box.DefaultColor
-end
-
-function ESPLibrary.LerpColorSequence(a, b, alpha)
-    local keys = {}
-    for i = 1, #a.Keypoints do
-        local ak, bk = a.Keypoints[i], b.Keypoints[i]
-        keys[i] = ColorSequenceKeypoint.new(ak.Time, ak.Value:Lerp(bk.Value, alpha))
-    end
-    return ColorSequence.new(keys)
-end
-
----------------------------------------------------------------------------------------------------
--- Toggle Functions
----------------------------------------------------------------------------------------------------
-function ESPLibrary:ToggleESP(state)
-    self.Settings.Enabled = state
-    if self.XenithESP then
-        self.XenithESP.Enabled = state
-    end
-end
-
-function ESPLibrary:ToggleBox(state)
-    self.Settings.Box.Enabled = state
-    for _, data in pairs(self.ExistantPlayers) do
-        if data.MainFrame then
-            data.MainFrame.Visible = state and data.MainFrame.Visible
-        end
-    end
-end
-
-function ESPLibrary:ToggleCorners(state)
-    self.Settings.Box.ShowCorners = state
-    for _, data in pairs(self.ExistantPlayers) do
-        for _, cornerName in ipairs({"CornerTL", "CornerBL", "CornerTR", "CornerBR"}) do
-            if data[cornerName] then
-                data[cornerName].Visible = state and self.Settings.Box.Enabled
-            end
-        end
-    end
-end
-
-function ESPLibrary:ToggleSides(state)
-    self.Settings.Box.ShowSides = state
-    for _, data in pairs(self.ExistantPlayers) do
-        for _, sideName in ipairs({"SideTL_H", "SideTL_V", "SideTR_H", "SideTR_V", "SideBL_H", "SideBL_V", "SideBR_H", "SideBR_V"}) do
-            if data[sideName] then
-                data[sideName].Visible = state and self.Settings.Box.Enabled
-            end
-        end
-    end
-end
-
-function ESPLibrary:ToggleBoxTeamColor(state)
-    self.Settings.Box.UseTeamColor = state
-    self:UpdateAllColors()
-end
-
-function ESPLibrary:ToggleTextTeamColor(state)
-    self.Settings.Text.UseTeamColor = state
-    self:UpdateAllColors()
-end
-
-function ESPLibrary:ToggleHighlight(state)
-    self.Settings.Highlight.Enabled = state
-    for _, data in pairs(self.ExistantPlayers) do
-        if data.Highlight then
-            data.Highlight.Enabled = state
-        end
-    end
-end
-
-function ESPLibrary:ToggleHighlightTeamColor(state)
-    self.Settings.Highlight.UseTeamColor = state
-    self:UpdateAllColors()
-end
-
-function ESPLibrary:ToggleName(state)
-    self.Settings.Text.ShowName = state
-    self:UpdateAllText()
-end
-
-function ESPLibrary:ToggleHealth(state)
-    self.Settings.Text.ShowHealth = state
-    self:UpdateAllText()
-end
-
-function ESPLibrary:ToggleDistance(state)
-    self.Settings.Text.ShowDistance = state
-    self:UpdateAllText()
-end
-
-function ESPLibrary:UpdateAllColors()
-    for player, data in pairs(self.ExistantPlayers) do
-        self:UpdatePlayerColors(player, data)
-    end
-end
-
-function ESPLibrary:UpdateAllText()
-    for player, data in pairs(self.ExistantPlayers) do
-        self:UpdatePlayerText(player, data)
-    end
-end
-
-function ESPLibrary:UpdatePlayerColors(player, data)
-    local teamColor = self:GetTeamColor(player)
-    
-    -- Update box colors
-    if self.Settings.Box.UseTeamColor then
-        if data.FrameStroke then
-            data.FrameStroke.Color = teamColor
-        end
-        
-        -- Update corners and sides
-        for _, cornerName in ipairs({"CornerTL", "CornerBL", "CornerTR", "CornerBR"}) do
-            if data[cornerName] then
-                data[cornerName].BackgroundColor3 = teamColor
-            end
-        end
-        
-        for _, sideName in ipairs({"SideTL_H", "SideTL_V", "SideTR_H", "SideTR_V", "SideBL_H", "SideBL_V", "SideBR_H", "SideBR_V"}) do
-            if data[sideName] then
-                data[sideName].BackgroundColor3 = teamColor
-            end
-        end
-    end
-    
-    -- Update text colors
-    if self.Settings.Text.UseTeamColor and data.NameLabel then
-        data.NameLabel.TextColor3 = teamColor
-    end
-    
-    -- Update highlight colors
-    if self.Settings.Highlight.UseTeamColor and data.Highlight then
-        data.Highlight.OutlineColor = teamColor
-        data.Highlight.FillColor = teamColor
-    end
-end
-
-function ESPLibrary:UpdatePlayerText(player, data)
-    if not data.NameLabel then return end
-    
-    local textParts = {}
-    
-    if self.Settings.Text.ShowHealth then
-        local chr = player.Character
-        if chr then
-            local hum = chr:FindFirstChild("Humanoid")
-            if hum then
-                local hpPct = hum.Health / hum.MaxHealth
-                table.insert(textParts, string.format("[%d%%]", math.floor(hpPct * 100)))
-            end
-        end
-    end
-    
-    if self.Settings.Text.ShowName then
-        table.insert(textParts, player.Name)
-    end
-    
-    if self.Settings.Text.ShowDistance then
-        local chr = player.Character
-        if chr then
-            local hrp = chr:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                local cam = workspace.CurrentCamera
-                local dist = (cam.CFrame.Position - hrp.Position).Magnitude
-                table.insert(textParts, string.format("[%d]", math.round(dist)))
-            end
-        end
-    end
-    
-    data.NameLabel.Text = table.concat(textParts, " / ")
-end
-
----------------------------------------------------------------------------------------------------
--- Build all UI bits + chams for one player
----------------------------------------------------------------------------------------------------
+-- Add these to the CreateESPComponents function
 function ESPLibrary.CreateESPComponents(plr)
-    if ESPLibrary.ExistantPlayers[plr] then return end
-    ESPLibrary.ExistantPlayers[plr] = {}
-    local data = ESPLibrary.ExistantPlayers[plr]
-
-    -- Main container
-    local frame = ESPLibrary.CreateInstance("Frame", {
-        Parent               = ESPLibrary.XenithESP,
-        Name                 = plr.Name.."_ESP",
-        BackgroundColor3     = Color3.fromRGB(0,0,0),
-        BackgroundTransparency = 0.8,
-        AnchorPoint          = Vector2.new(0.5,0.5),
-        Size                 = UDim2.new(0,180,0,250),
-        Visible              = false,
-    })
-    data.MainFrame = frame
-    ESPLibrary.CreateInstance("UICorner", {Parent = frame, CornerRadius = UDim.new(0,1)})
-
-    -- Frame stroke
-    local frameStroke = ESPLibrary.CreateInstance("UIStroke", {
-        Parent    = frame,
-        Color     = ESPLibrary.Settings.Box.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Box.DefaultColor,
-        Thickness = 1,
-    })
-    data.FrameStroke = frameStroke
-
-    -- Box gradient
-    local boxGrad = ESPLibrary.CreateInstance("UIGradient", {
+    -- ... existing code ...
+    
+    -- Top bar
+    local topBar = ESPLibrary.CreateInstance("TextLabel", {
         Parent = frame,
-        Color  = ColorSequence.new{
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(255,0,0)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(200,0,0)),
-        }
-    })
-    data.UIGradientMainFrame = boxGrad
-
-    -- Corner boxes
-    local corners = {
-        { "CornerTL", UDim2.new(0.015,0,0.010,0), UDim2.new(0,0,0,0), Vector2.new(0,0) },
-        { "CornerBL", UDim2.new(0.015,0,0.010,0), UDim2.new(0,0,1,0), Vector2.new(0,1) },
-        { "CornerTR", UDim2.new(0.015,0,0.010,0), UDim2.new(1,0,0,0), Vector2.new(1,0) },
-        { "CornerBR", UDim2.new(0.015,0,0.010,0), UDim2.new(1,0,1,0), Vector2.new(1,1) },
-    }
-    for _, info in ipairs(corners) do
-        local name, size, pos, anchor = unpack(info)
-        local box = ESPLibrary.CreateInstance("Frame", {
-            Parent            = frame,
-            Name              = name,
-            Size              = size,
-            Position          = pos,
-            AnchorPoint       = anchor,
-            ZIndex            = 3,
-            BackgroundColor3  = ESPLibrary.Settings.Box.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Box.DefaultColor,
-            Visible           = ESPLibrary.Settings.Box.ShowCorners,
-        })
-        ESPLibrary.CreateInstance("UIStroke", {Parent = box, Color = Color3.new(0,0,0), Thickness = 0.6})
-        data[name] = box
-    end
-
-    -- Side bars
-    local sides = {
-        { "SideTL_H", UDim2.new(0.1,0,0.01,0), UDim2.new(0,0,0,0), Vector2.new(0,0) },
-        { "SideTL_V", UDim2.new(0.01,0,0.1,0), UDim2.new(0,0,0,0), Vector2.new(0,0) },
-        { "SideTR_H", UDim2.new(0.1,0,0.01,0), UDim2.new(1,0,0,0), Vector2.new(1,0) },
-        { "SideTR_V", UDim2.new(0.01,0,0.1,0), UDim2.new(1,0,0,0), Vector2.new(1,0) },
-        { "SideBL_H", UDim2.new(0.1,0,0.01,0), UDim2.new(0,0,1,0), Vector2.new(0,1) },
-        { "SideBL_V", UDim2.new(0.01,0,0.1,0), UDim2.new(0,0,1,0), Vector2.new(0,1) },
-        { "SideBR_H", UDim2.new(0.1,0,0.01,0), UDim2.new(1,0,1,0), Vector2.new(1,1) },
-        { "SideBR_V", UDim2.new(0.01,0,0.1,0), UDim2.new(1,0,1,0), Vector2.new(1,1) },
-    }
-    for _, info in ipairs(sides) do
-        local name, size, pos, anchor = unpack(info)
-        local bar = ESPLibrary.CreateInstance("Frame", {
-            Parent            = frame,
-            Name              = name,
-            Size              = size,
-            Position          = pos,
-            AnchorPoint       = anchor,
-            ZIndex            = 2,
-            BackgroundColor3  = ESPLibrary.Settings.Box.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Box.DefaultColor,
-            Visible           = ESPLibrary.Settings.Box.ShowSides,
-        })
-        ESPLibrary.CreateInstance("UIStroke", {Parent = bar, Color = Color3.new(0,0,0), Thickness = 0.6})
-        data[name] = bar
-    end
-
-    -- Text label + gradient
-    local nameLabel = ESPLibrary.CreateInstance("TextLabel", {
-        Parent                 = frame,
-        Name                   = "NameLabel",
-        BackgroundTransparency = 1,
-        Text                   = "",
-        TextColor3             = ESPLibrary.Settings.Text.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Text.DefaultColor,
+        Name = "TopBar",
+        BackgroundTransparency = 0.7,
+        BackgroundColor3 = Color3.new(0,0,0),
+        Text = "",
+        TextColor3 = ESPLibrary.Settings.TopBar.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.TopBar.DefaultColor,
         TextStrokeTransparency = 0.6,
-        Font                   = Enum.Font.Code,
-        TextWrapped            = false,
-        TextScaled             = false,
-        AutomaticSize          = Enum.AutomaticSize.None,
-        AnchorPoint            = Vector2.new(0.5,1),
-        Position               = UDim2.new(0.5,0,0,-4),
-        ZIndex                 = 10,
+        Font = Enum.Font.Code,
+        TextWrapped = true,
+        TextScaled = false,
+        AutomaticSize = Enum.AutomaticSize.Y,
+        Size = UDim2.new(1, 0, 0, 0),
+        Position = UDim2.new(0, 0, 0, -20),
+        Visible = ESPLibrary.Settings.TopBar.Enabled,
+        ZIndex = 15
     })
-    data.NameLabel = nameLabel
-
-    local textGrad = ESPLibrary.CreateInstance("UIGradient", {
-        Parent = nameLabel,
-        Color  = ColorSequence.new{
-            ColorSequenceKeypoint.new(0, Color3.new(1,1,1)),
-            ColorSequenceKeypoint.new(1, Color3.new(1,1,1)),
-        }
-    })
-    data.TextGradient = textGrad
-
-    local highlight = ESPLibrary.CreateInstance("Highlight", {
-        Parent            = workspace,
-        Adornee           = plr.Character or nil,
-        FillColor         = ESPLibrary.Settings.Highlight.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Highlight.DefaultFillColor,
-        OutlineColor      = ESPLibrary.Settings.Highlight.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.Highlight.DefaultOutlineColor,
-        FillTransparency  = 0.7,
-        OutlineTransparency = 0.5,
-        Enabled           = ESPLibrary.Settings.Highlight.Enabled,
-    })
-    data.Highlight = highlight
+    data.TopBar = topBar
     
-    plr.CharacterAdded:Connect(function(char)
-        highlight.Adornee = char
-    end)
+    -- Bottom bar
+    local bottomBar = ESPLibrary.CreateInstance("TextLabel", {
+        Parent = frame,
+        Name = "BottomBar",
+        BackgroundTransparency = 0.7,
+        BackgroundColor3 = Color3.new(0,0,0),
+        Text = "",
+        TextColor3 = ESPLibrary.Settings.BottomBar.UseTeamColor and ESPLibrary.GetTeamColor(plr) or ESPLibrary.Settings.BottomBar.DefaultColor,
+        TextStrokeTransparency = 0.6,
+        Font = Enum.Font.Code,
+        TextWrapped = true,
+        TextScaled = false,
+        AutomaticSize = Enum.AutomaticSize.Y,
+        Size = UDim2.new(1, 0, 0, 0),
+        Position = UDim2.new(0, 0, 1, 0),
+        Visible = ESPLibrary.Settings.BottomBar.Enabled,
+        ZIndex = 15
+    })
+    data.BottomBar = bottomBar
+    
+    -- ... existing code ...
+end
 
-    -- Animation loop
-    task.spawn(function()
-        local baseColor      = ESPLibrary.Settings.Box.UseTeamColor and ESPLibrary.GetTeamColor(plr) or Color3.fromRGB(0, 180, 200)
-        local midColor       = baseColor:Lerp(Color3.new(1,1,1), 0.3)
-        local highlightColor = baseColor:Lerp(Color3.new(1,1,1), 0.6)
-
-        local pulseSpeed     = 0.4
-        local minAlpha       = 0.35
-        local maxAlpha       = 0.75
-
-        while frame.Parent do
-            local t     = tick()
-            local pulse = (math.sin(t * pulseSpeed * math.pi * 2) + 1) / 2
-            local inv   = 1 - pulse
-
-            if not ESPLibrary.Settings.Box.UseTeamColor then
-                boxGrad.Color = ColorSequence.new{
-                    ColorSequenceKeypoint.new(0, baseColor),
-                    ColorSequenceKeypoint.new(0.5, midColor),
-                    ColorSequenceKeypoint.new(1, highlightColor),
-                }
-
-                frame.BackgroundColor3      = baseColor:Lerp(midColor, pulse * 0.5)
-                frame.BackgroundTransparency = 1 - (minAlpha + (maxAlpha - minAlpha)*pulse)
-
-                frameStroke.Color        = midColor
-                frameStroke.Transparency = 0.4 + 0.3*(1-pulse)
-
-                for _, child in pairs(data) do
-                    if typeof(child)=="Instance" and child:IsA("Frame") and child~=frame then
-                        child.BackgroundColor3 = highlightColor:Lerp(baseColor, pulse*0.5)
-                        local stroke = child:FindFirstChildOfClass("UIStroke")
-                        if stroke then
-                            stroke.Color        = baseColor
-                            stroke.Transparency = 0.5 + 0.3*pulse
-                        end
-                    end
-                end
-            end
-
-            if not ESPLibrary.Settings.Text.UseTeamColor then
-                textGrad.Color           = ColorSequence.new{
-                    ColorSequenceKeypoint.new(0, midColor),
-                    ColorSequenceKeypoint.new(1, highlightColor),
-                }
-                data.NameLabel.TextColor3 = highlightColor:Lerp(midColor, pulse)
-            end
-
-            if not ESPLibrary.Settings.Highlight.UseTeamColor then
-                highlight.FillColor           = midColor
-                highlight.OutlineColor        = highlightColor
-                highlight.FillTransparency    = minAlpha + (maxAlpha - minAlpha) * inv * 0.5
-                highlight.OutlineTransparency = 0.2 + 0.5 * inv
-            end
-            
-            task.wait(0.01)
+-- Add these to the UpdatePlayerColors function
+function ESPLibrary:UpdatePlayerColors(player, data)
+    -- ... existing code ...
+    
+    -- Update top bar color
+    if data.TopBar then
+        if self.Settings.TopBar.UseTeamColor then
+            data.TopBar.TextColor3 = teamColor
         end
-    end)
-    
-    -- Update initial colors and text
-    ESPLibrary:UpdatePlayerColors(plr, data)
-    ESPLibrary:UpdatePlayerText(plr, data)
-end
-
-function ESPLibrary.DeleteESPComponents(plr)
-    local data = ESPLibrary.ExistantPlayers[plr]
-    if not data then return end
-    if data.MainFrame then data.MainFrame:Destroy() end
-    if data.Highlight then data.Highlight:Destroy() end
-    if ESPLibrary.RunningThreads[plr] then
-        ESPLibrary.RunningThreads[plr]:Disconnect()
-        ESPLibrary.RunningThreads[plr] = nil
     end
-    ESPLibrary.ExistantPlayers[plr] = nil
+    
+    -- Update bottom bar color
+    if data.BottomBar then
+        if self.Settings.BottomBar.UseTeamColor then
+            data.BottomBar.TextColor3 = teamColor
+        end
+    end
 end
 
+-- Add these to the RenderESP function
 function ESPLibrary.RenderESP(plr)
-    local data = ESPLibrary.ExistantPlayers[plr]
-    if not data then return end
-    local chr = plr.Character
-    if not chr then return end
-    local hrp = chr:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    data.RootPart = hrp
-
-    ESPLibrary.RunningThreads[plr] = RunService.RenderStepped:Connect(function()
-        if not ESPLibrary.Settings.Enabled or not ESPLibrary.Settings.Box.Enabled then
-            data.MainFrame.Visible = false
-            return
-        end
-        
-        local cam, frame = workspace.CurrentCamera, data.MainFrame
-        local screenPt, onScreen = cam:WorldToScreenPoint(hrp.Position)
-        if not onScreen then frame.Visible = false return end
-        frame.Visible  = true
-        frame.Position = UDim2.new(0, screenPt.X, 0, screenPt.Y)
-
-        -- box sizing
-        local dist      = (cam.CFrame.Position - hrp.Position).Magnitude
-        local scaleFact = math.clamp(1 - (dist/60), 0, .2)
-        local sizeBase  = 4.5 + 4.5 * scaleFact
-        local w         = sizeBase * cam.ViewportSize.Y / (screenPt.Z * 1.7)
-        local h         = w * 1.5
-        frame.Size      = UDim2.new(0, w, 0, h)
-
-        -- Update text
-        ESPLibrary:UpdatePlayerText(plr, data)
-        
-        -- text sizing
-        local lbl = data.NameLabel
-        local sf = math.clamp(30 / math.max(dist,0.1), .5, 1.5)
-        local bounds = TextService:GetTextSize(lbl.Text, 24, lbl.Font, Vector2.new(1e5,1e5))
-        lbl.Size     = UDim2.new(0, math.clamp(bounds.X*sf,120,240),
-                                 0, math.clamp(bounds.Y*sf,24,48))
-        lbl.TextSize = 24 * sf
-    end)
-end
-
----------------------------------------------------------------------------------------------------
--- Initialize everything
----------------------------------------------------------------------------------------------------
-function ESPLibrary.InitializeESP()
-    local old = gethui():FindFirstChild("XenithESP")
-    if old then old:Destroy() end
-    ESPLibrary.XenithESP       = ESPLibrary.CreateInstance("ScreenGui", {
-        Parent = gethui(), Name = "XenithESP", Enabled = ESPLibrary.Settings.Enabled
-    })
-    ESPLibrary.ExistantPlayers = {}
-    ESPLibrary.RunningThreads  = {}
-
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= Players.LocalPlayer then
-            ESPLibrary.CreateESPComponents(p)
-            ESPLibrary.RenderESP(p)
+    -- ... existing code ...
+    
+    -- Update bars in the render loop
+    if data.TopBar then
+        data.TopBar.Visible = ESPLibrary.Settings.TopBar.Enabled
+        if data.TopBar.Visible then
+            -- Position above the box with padding
+            data.TopBar.Position = UDim2.new(0, 0, 0, -data.TopBar.TextBounds.Y - 4)
         end
     end
-    Players.PlayerAdded:Connect(function(p)
-        if p ~= Players.LocalPlayer then
-            ESPLibrary.CreateESPComponents(p)
-            ESPLibrary.RenderESP(p)
+    
+    if data.BottomBar then
+        data.BottomBar.Visible = ESPLibrary.Settings.BottomBar.Enabled
+        if data.BottomBar.Visible then
+            -- Position below the box with padding
+            data.BottomBar.Position = UDim2.new(0, 0, 1, 4)
         end
-    end)
-    Players.PlayerRemoving:Connect(function(p)
-        if p ~= Players.LocalPlayer then
-            ESPLibrary.DeleteESPComponents(p)
+    end
+end
+
+-- Add these new API functions
+function ESPLibrary:AddTopBar(player, text)
+    local data = self.ExistantPlayers[player]
+    if data and data.TopBar then
+        data.TopBar.Text = text
+    end
+end
+
+function ESPLibrary:AddBottomBar(player, text)
+    local data = self.ExistantPlayers[player]
+    if data and data.BottomBar then
+        data.BottomBar.Text = text
+    end
+end
+
+function ESPLibrary:SetTopBarText(player, text)
+    self:AddTopBar(player, text)
+end
+
+function ESPLibrary:SetBottomBarText(player, text)
+    self:AddBottomBar(player, text)
+end
+
+function ESPLibrary:ShowTopBar()
+    self.Settings.TopBar.Enabled = true
+    for _, data in pairs(self.ExistantPlayers) do
+        if data.TopBar then
+            data.TopBar.Visible = true
         end
-    end)
+    end
 end
 
----------------------------------------------------------------------------------------------------
--- API Functions for easy use
----------------------------------------------------------------------------------------------------
-
--- Main toggles
-function ESPLibrary:Enable()
-    self:ToggleESP(true)
+function ESPLibrary:HideTopBar()
+    self.Settings.TopBar.Enabled = false
+    for _, data in pairs(self.ExistantPlayers) do
+        if data.TopBar then
+            data.TopBar.Visible = false
+        end
+    end
 end
 
-function ESPLibrary:Disable()
-    self:ToggleESP(false)
+function ESPLibrary:ShowBottomBar()
+    self.Settings.BottomBar.Enabled = true
+    for _, data in pairs(self.ExistantPlayers) do
+        if data.BottomBar then
+            data.BottomBar.Visible = true
+        end
+    end
 end
 
--- Box controls
-function ESPLibrary:ShowBox()
-    self:ToggleBox(true)
+function ESPLibrary:HideBottomBar()
+    self.Settings.BottomBar.Enabled = false
+    for _, data in pairs(self.ExistantPlayers) do
+        if data.BottomBar then
+            data.BottomBar.Visible = false
+        end
+    end
 end
 
-function ESPLibrary:HideBox()
-    self:ToggleBox(false)
+function ESPLibrary:ToggleTopBarTeamColor(state)
+    self.Settings.TopBar.UseTeamColor = state
+    self:UpdateAllColors()
 end
 
-function ESPLibrary:ShowCorners()
-    self:ToggleCorners(true)
+function ESPLibrary:ToggleBottomBarTeamColor(state)
+    self.Settings.BottomBar.UseTeamColor = state
+    self:UpdateAllColors()
 end
-
-function ESPLibrary:HideCorners()
-    self:ToggleCorners(false)
-end
-
-function ESPLibrary:ShowSides()
-    self:ToggleSides(true)
-end
-
-function ESPLibrary:HideSides()
-    self:ToggleSides(false)
-end
-
--- Text controls
-function ESPLibrary:ShowName()
-    self:ToggleName(true)
-end
-
-function ESPLibrary:HideName()
-    self:ToggleName(false)
-end
-
-function ESPLibrary:ShowHealth()
-    self:ToggleHealth(true)
-end
-
-function ESPLibrary:HideHealth()
-    self:ToggleHealth(false)
-end
-
-function ESPLibrary:ShowDistance()
-    self:ToggleDistance(true)
-end
-
-function ESPLibrary:HideDistance()
-    self:ToggleDistance(false)
-end
-
--- Team color controls
-function ESPLibrary:UseTeamColors()
-    self:ToggleBoxTeamColor(true)
-    self:ToggleTextTeamColor(true)
-    self:ToggleHighlightTeamColor(true)
-end
-
-function ESPLibrary:UseDefaultColors()
-    self:ToggleBoxTeamColor(false)
-    self:ToggleTextTeamColor(false)
-    self:ToggleHighlightTeamColor(false)
-end
-
--- Highlight controls
-function ESPLibrary:ShowHighlight()
-    self:ToggleHighlight(true)
-end
-
-function ESPLibrary:HideHighlight()
-    self:ToggleHighlight(false)
-end
-
--- Initialize
-ESPLibrary.InitializeESP()
-
-return ESPLibrary
