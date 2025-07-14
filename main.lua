@@ -74,7 +74,11 @@ function ESPLibrary:ToggleBox(state)
     self.Settings.Box.Enabled = state
     for _, data in pairs(self.ExistantPlayers) do
         if data.MainFrame then
-            data.MainFrame.Visible = state and data.MainFrame.Visible
+            if state then 
+                data.MainFrame.Transparency = 0
+            else
+                data.MainFrame.Transparency = 1
+            end
         end
     end
 end
