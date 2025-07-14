@@ -9,21 +9,21 @@ local ESPLibrary = {}
 ESPLibrary.Settings = {
     Enabled = true,
     Box = {
-        Enabled = true,
-        ShowCorners = true,
-        ShowSides = true,
+        Enabled = false,
+        ShowCorners = false,
+        ShowSides = false,
         UseTeamColor = false,
         DefaultColor = Color3.fromRGB(0, 200, 200)
     },
     Text = {
-        ShowName = true,
-        ShowHealth = true,
-        ShowDistance = true,
+        ShowName = false,
+        ShowHealth = false,
+        ShowDistance = false,
         UseTeamColor = false,
         DefaultColor = Color3.new(1, 1, 1)
     },
     Highlight = {
-        Enabled = true,
+        Enabled = false,
         UseTeamColor = false,
         DefaultFillColor = Color3.fromRGB(100, 100, 100),
         DefaultOutlineColor = Color3.fromRGB(0, 200, 200)
@@ -443,7 +443,7 @@ function ESPLibrary.RenderESP(plr)
     data.RootPart = hrp
 
     ESPLibrary.RunningThreads[plr] = RunService.RenderStepped:Connect(function()
-        if not ESPLibrary.Settings.Enabled or not ESPLibrary.Settings.Box.Enabled then
+        if not ESPLibrary.Settings.Enabled then
             data.MainFrame.Visible = false
             return
         end
