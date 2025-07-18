@@ -8,7 +8,7 @@ local ESPLibrary = {}
 -- Configuration settings
 ESPLibrary.Settings = {
     Enabled = false,
-    FontSize = 24
+    FontSize = 24,
     Box = {
         Enabled = false,
         ShowCorners = false,
