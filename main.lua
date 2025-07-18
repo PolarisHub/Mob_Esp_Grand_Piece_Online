@@ -8,6 +8,7 @@ local ESPLibrary = {}
 -- Configuration settings
 ESPLibrary.Settings = {
     Enabled = false,
+    FontSize = 24
     Box = {
         Enabled = false,
         ShowCorners = false,
@@ -501,7 +502,7 @@ function ESPLibrary.RenderESP(plr)
         -- text sizing
         local lbl = data.NameLabel
         local sf = math.clamp(30 / math.max(dist,0.1), .5, 1.5)
-        local bounds = TextService:GetTextSize(lbl.Text, 24, lbl.Font, Vector2.new(1e5,1e5))
+        local bounds = TextService:GetTextSize(lbl.Text, ESPLibrary.Settings.FontSize, lbl.Font, Vector2.new(1e5,1e5))
         lbl.Size     = UDim2.new(0, math.clamp(bounds.X*sf,120,240),
                                  0, math.clamp(bounds.Y*sf,24,48))
         lbl.TextSize = 24 * sf
