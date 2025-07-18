@@ -603,6 +603,10 @@ function ESPLibrary:HideDistance()
     self:ToggleDistance(false)
 end
 
+function ESPLibrary:SetFontSize(VALUE)
+    ESPLibrary.Settings.FontSize = VALUE
+end
+
 -- Team color controls
 function ESPLibrary:UseTeamColors()
     self:ToggleBoxTeamColor(true)
